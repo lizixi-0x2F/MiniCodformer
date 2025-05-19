@@ -361,15 +361,15 @@ class DistillationModel(nn.Module):
         @dataclass
         class ModelConfig:
             vocab_size: int = 151669
-            hidden_size: int = 2048
-            num_hidden_layers: int = 24
-            num_attention_heads: int = 16
-            intermediate_size: int = 8192
+            hidden_size: int = 768
+            num_hidden_layers: int = 12
+            num_attention_heads: int = 12
+            intermediate_size: int = 3072
             hidden_dropout_prob: float = 0.1
             attention_probs_dropout_prob: float = 0.1
             max_position_embeddings: int = 2048
-            ltc_ncp_hidden_size: int = 2048
-            ltc_ncp_num_layers: int = 12
+            ltc_ncp_hidden_size: int = 768
+            ltc_ncp_num_layers: int = 6
             ltc_kernel_size: int = 3
             distill_supervision: bool = True
             share_embeddings: bool = True

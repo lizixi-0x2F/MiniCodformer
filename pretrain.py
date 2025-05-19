@@ -97,7 +97,7 @@ class CustomPreTrainer(Trainer):
         super().__init__(**kwargs)
         self.perplexity_history = []
         
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         # 将标准语言模型损失与自定义模型输出格式相适应，并计算困惑度
         outputs = model(**inputs, calculate_metrics=True)
         

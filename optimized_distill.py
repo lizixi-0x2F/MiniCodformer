@@ -332,10 +332,10 @@ class CustomModelConfig(PretrainedConfig):
     def __init__(
         self,
         vocab_size=151669,
-        hidden_size=2048,
-        num_hidden_layers=24,
-        num_attention_heads=16,
-        intermediate_size=8192,
+        hidden_size=768,
+        num_hidden_layers=12,
+        num_attention_heads=12,
+        intermediate_size=3072,
         hidden_dropout_prob=0.1,
         attention_probs_dropout_prob=0.1,
         max_position_embeddings=2048,
@@ -380,8 +380,8 @@ class CustomModelConfig(PretrainedConfig):
             **kwargs
         )
 
-def create_custom_model_config(vocab_size, hidden_size=2048, num_hidden_layers=24, 
-                              num_attention_heads=16, intermediate_size=8192):
+def create_custom_model_config(vocab_size, hidden_size=768, num_hidden_layers=12, 
+                              num_attention_heads=12, intermediate_size=3072):
     """创建自定义模型配置"""
     return CustomModelConfig(
         vocab_size=vocab_size,

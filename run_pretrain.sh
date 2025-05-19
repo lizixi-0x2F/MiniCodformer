@@ -23,7 +23,7 @@ LOCAL_WIKI_DATA="data/wikipedia-cn-20230720-filtered.json"
 mkdir -p $OUTPUT_DIR
 mkdir -p $DATA_DIR
 
-echo "===== 开始DeepSeek 500M预训练流程 ====="
+echo "===== 开始自定义500M预训练流程 ====="
 
 # 1. 处理本地维基百科数据集
 echo "===== 处理本地维基百科中文数据集 ====="
@@ -49,10 +49,10 @@ python pretrain.py \
   --output_dir $OUTPUT_DIR \
   --train_file $DATA_DIR/wiki_corpus.txt \
   --max_seq_length 512 \
-  --hidden_size 2048 \
-  --num_layers 24 \
-  --num_heads 16 \
-  --intermediate_size 8192 \
+  --hidden_size 768 \
+  --num_layers 12 \
+  --num_heads 12 \
+  --intermediate_size 3072 \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
   --gradient_accumulation_steps 16 \
