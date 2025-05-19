@@ -498,9 +498,6 @@ class DistillationModel(nn.Module):
                         # 创建蒸馏掩码
                         teacher_masked_logits = torch.zeros_like(teacher_logits_adapted)
                         
-                        # 创建蒸馏掩码
-                        teacher_masked_logits = torch.zeros_like(teacher_logits_adapted)
-                        
                         # 通过循环处理每个序列位置以找到top-k值
                         for b in range(batch_size):
                             for s in range(seq_length):
