@@ -327,20 +327,20 @@ class CustomDistillationTrainer(Trainer):
 # 自定义配置类
 class CustomModelConfig(PretrainedConfig):
     """继承自PretrainedConfig的自定义模型配置类"""
-    model_type = "custom_model"
+    model_type = "distillation_model"
     
     def __init__(
         self,
         vocab_size=151669,
-        hidden_size=256,
-        num_hidden_layers=3,
-        num_attention_heads=4,
-        intermediate_size=1024,
+        hidden_size=2048,
+        num_hidden_layers=24,
+        num_attention_heads=16,
+        intermediate_size=8192,
         hidden_dropout_prob=0.1,
         attention_probs_dropout_prob=0.1,
         max_position_embeddings=2048,
-        ltc_ncp_hidden_size=256,
-        ltc_ncp_num_layers=3,
+        ltc_ncp_hidden_size=2048,
+        ltc_ncp_num_layers=12,
         ltc_kernel_size=3,
         distill_supervision=True,
         share_embeddings=True,
@@ -395,6 +395,7 @@ def create_custom_model_config(vocab_size, hidden_size=2048, num_hidden_layers=2
         ltc_ncp_hidden_size=hidden_size,
         ltc_ncp_num_layers=num_hidden_layers//2,  # 解码器层数为编码器的一半
         ltc_kernel_size=3,
+        model_type="distillation_model",
         distill_supervision=True,
         share_embeddings=True,
         distill_logits=True,

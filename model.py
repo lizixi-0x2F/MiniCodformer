@@ -381,6 +381,29 @@ class DistillationModel(nn.Module):
             pad_token_id: int = 0
             eos_token_id: int = 2
             bos_token_id: int = 1
+            model_type: str = "distillation_model"
+            
+            def to_json_string(self):
+                """序列化配置为JSON字符串"""
+                import json
+                config_dict = {k: v for k, v in vars(self).items()}
+                return json.dumps(config_dict, indent=2)
+                
+            def to_dict(self):
+                """将配置转换为字典"""
+                return {k: v for k, v in vars(self).items()}
+                
+            def __getitem__(self, key):
+                """支持字典访问方式"""
+                return getattr(self, key, None)
+                
+            def save_pretrained(self, save_directory):
+                """保存配置到目录"""
+                import os
+                import json
+                os.makedirs(save_directory, exist_ok=True)
+                with open(os.path.join(save_directory, "config.json"), "w", encoding="utf-8") as f:
+                    f.write(self.to_json_string())
         
         # 加载配置
         with open(os.path.join(model_path, "config.json"), "r", encoding="utf-8") as f:
