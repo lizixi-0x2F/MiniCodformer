@@ -91,14 +91,15 @@ class TextDataset(Dataset):
         }
 
 class CustomPreTrainer(Trainer):
-    """自定义预训练训练器"""
+    """自定义预训练训练器 - 支持困惑度计算"""
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.perplexity_history = []
         
     def compute_loss(self, model, inputs, return_outputs=False):
-        # 将标准语言模型损失与自定义模型输出格式相适应
-        outputs = model(**inputs)
+        # 将标准语言模型损失与自定义模型输出格式相适应，并计算困惑度
+        outputs = model(**inputs, calculate_metrics=True)
         
         # 检查outputs是字典还是带有loss属性的对象
         if isinstance(outputs, dict):
@@ -132,11 +133,35 @@ class CustomPreTrainer(Trainer):
             # 标准Hugging Face模型输出
             loss = outputs.loss
             
-        # 记录损失
+        # 获取困惑度指标
+        perplexity = None
+        if isinstance(outputs, dict) and "metrics" in outputs:
+            metrics = outputs["metrics"]
+            if "perplexity" in metrics:
+                perplexity = metrics["perplexity"]
+                self.perplexity_history.append(perplexity)
+        
+        # 记录损失和困惑度
         if self.state.global_step % 100 == 0:
-            logger.info(f"步骤 {self.state.global_step}: 损失={loss.item():.4f}")
+            if perplexity is not None:
+                logger.info(f"步骤 {self.state.global_step}: 损失={loss.item():.4f}, 困惑度={perplexity:.2f}")
+            else:
+                logger.info(f"步骤 {self.state.global_step}: 损失={loss.item():.4f}")
             
         return (loss, outputs) if return_outputs else loss
+        
+    def log(self, logs):
+        """添加困惑度到日志"""
+        # 计算平均困惑度
+        if hasattr(self, 'perplexity_history') and self.perplexity_history:
+            # 取最近10个值计算平均困惑度
+            recent_perplexity = self.perplexity_history[-min(10, len(self.perplexity_history)):]
+            valid_values = [p for p in recent_perplexity if p != float('inf')]
+            if valid_values:
+                avg_perplexity = sum(valid_values) / len(valid_values)
+                logs["perplexity"] = avg_perplexity
+            
+        super().log(logs)
 
 def main():
     parser = argparse.ArgumentParser(description="DeepSeek 500M模型预训练")

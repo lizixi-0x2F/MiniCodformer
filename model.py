@@ -261,7 +261,7 @@ class StudentTransformer(nn.Module):
         return logits
 
 class DistillationModel(nn.Module):
-    """完整的蒸馏模型"""
+    """自定义预训练与蒸馏模型（非DeepSeek）"""
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -430,6 +430,40 @@ class DistillationModel(nn.Module):
             
         return model
         
+    def calculate_perplexity(self, logits, labels, ignore_index=-100):
+        """计算困惑度（perplexity）指标
+        
+        困惑度 = exp(交叉熵损失)，是语言模型评估的重要指标
+        困惑度越低表示模型预测越准确
+        """
+        # 确保输入形状正确
+        if logits.dim() == 3:
+            # [batch, seq_len, vocab_size] -> [batch * seq_len, vocab_size]
+            logits = logits.view(-1, logits.size(-1))
+        if labels.dim() == 2:
+            # [batch, seq_len] -> [batch * seq_len]
+            labels = labels.view(-1)
+            
+        # 创建有效标签掩码（排除忽略索引）
+        padding_mask = (labels != ignore_index)
+        valid_labels = labels.masked_select(padding_mask)
+        
+        # 如果没有有效标签，返回无效值
+        if valid_labels.size(0) == 0:
+            return torch.tensor(float('nan'))
+            
+        # 选择有效位置的logits
+        valid_indices = padding_mask.nonzero().squeeze(-1)
+        valid_logits = logits[valid_indices]
+        
+        # 计算交叉熵损失
+        loss = F.cross_entropy(valid_logits, valid_labels, reduction='mean')
+        
+        # 计算困惑度
+        perplexity = torch.exp(loss)
+        
+        return perplexity
+        
     def forward(
         self,
         input_ids,
@@ -442,7 +476,8 @@ class DistillationModel(nn.Module):
         top_k=None,
         temperature=2.0,
         hard_weights=None,
-        use_soft_labels=True  # 新参数：是否使用软标签蒸馏
+        use_soft_labels=True,  # 是否使用软标签蒸馏
+        calculate_metrics=False  # 是否计算评估指标如困惑度
     ):
         # 编码器处理输入
         encoder_outputs = self.encoder(input_ids, attention_mask)
@@ -621,13 +656,36 @@ class DistillationModel(nn.Module):
                     # 添加监督KD损失
                     loss = loss + 0.2 * sup_kd_total_loss
         
+        # 计算评估指标
+        metrics = {}
+        if calculate_metrics and labels is not None:
+            # 计算困惑度
+            perplexity = self.calculate_perplexity(ltc_ncp_logits, labels, ignore_index=pad_token_id)
+            metrics["perplexity"] = perplexity.item() if not torch.isnan(perplexity) else float('inf')
+            
+            # 计算准确率（token级别）
+            if "ltc_ncp_logits" in locals() and labels is not None:
+                pred_tokens = ltc_ncp_logits.argmax(dim=-1)
+                valid_mask = (labels != pad_token_id)
+                correct = ((pred_tokens == labels) & valid_mask).sum().float()
+                total = valid_mask.sum().float()
+                accuracy = correct / total if total > 0 else torch.tensor(0.0)
+                metrics["accuracy"] = accuracy.item()
+                
         # 返回结果
-        return {
-            "loss": loss,
-            "loss_components": loss_components,
-            "ltc_ncp_logits": ltc_ncp_logits,
-            "supervision_logits": supervision_logits,
-        } if return_dict else (loss, ltc_ncp_logits)
+        if return_dict:
+            result = {
+                "loss": loss,
+                "loss_components": loss_components,
+                "ltc_ncp_logits": ltc_ncp_logits,
+                "supervision_logits": supervision_logits,
+            }
+            # 添加评估指标
+            if metrics:
+                result["metrics"] = metrics
+            return result
+        else:
+            return (loss, ltc_ncp_logits)
         
     def generate(self, input_ids, attention_mask=None, max_length=None, eos_token_id=None, repetition_penalty=None):
         """生成文本"""
