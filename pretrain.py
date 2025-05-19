@@ -30,6 +30,9 @@ from transformers import (
 from model import DistillationModel
 from optimized_distill import CustomModelConfig, create_custom_model_config
 
+# 导入我们的自定义Trainer
+from model_saver import CustomTrainer
+
 # 设置日志
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -269,7 +272,8 @@ def main():
         "report_to": "tensorboard",
         "seed": args.seed,
         "dataloader_num_workers": 4,  # 使用多进程加载数据
-        "disable_tqdm": False
+        "disable_tqdm": False,
+        "save_safetensors": False
     }
     
     # 根据是否有验证集来设置评估参数
@@ -287,7 +291,7 @@ def main():
     )
     
     # 创建自定义训练器
-    trainer = CustomPreTrainer(
+    trainer = CustomTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,

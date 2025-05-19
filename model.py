@@ -591,7 +591,7 @@ class DistillationModel(nn.Module):
                     try:
                         # 对于每个位置，找到教师模型的top-k预测
                         top_k_value = min(actual_top_k, self.config.vocab_size)
-                        
+                            
                         # 创建遮罩用于筛选top-k词汇
                         batch_size, seq_length = input_ids.shape
                         
@@ -608,7 +608,6 @@ class DistillationModel(nn.Module):
                         
                         kd_total_loss, kd_losses = joint_kd_loss(
                             student_logits=ltc_ncp_logits,
-                        # 应用联合KD损失 (仅包含top-k)
                             teacher_logits=teacher_masked_logits,
                             labels=valid_labels,
                             ignore_index=pad_token_id
