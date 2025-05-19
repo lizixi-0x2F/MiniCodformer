@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.cuda.amp  # 添加torch.cuda.amp模块导入
 from transformers import AutoModel, AutoConfig
 from typing import Optional, Tuple
 
@@ -393,6 +394,17 @@ class DistillationModel(nn.Module):
                 """将配置转换为字典"""
                 return {k: v for k, v in vars(self).items()}
                 
+            @classmethod
+            def from_json(cls, json_str):
+                """从JSON字符串创建配置"""
+                import json
+                config_dict = json.loads(json_str)
+                config = cls()
+                for key, value in config_dict.items():
+                    if hasattr(config, key):
+                        setattr(config, key, value)
+                return config
+                
             def __getitem__(self, key):
                 """支持字典访问方式"""
                 return getattr(self, key, None)
@@ -567,6 +579,12 @@ class DistillationModel(nn.Module):
                     target_seq_length=seq_length
                 )
                 
+                # 确保teacher_logits在正确的设备上
+                # 由于TeacherOutputAdapter现在返回的是CPU上的张量，需要移回GPU
+                if torch.cuda.is_available() and teacher_logits_adapted.device.type == "cpu":
+                    device = ltc_ncp_logits.device
+                    teacher_logits_adapted = teacher_logits_adapted.to(device)
+                
                 # 应用联合KD损失
                 if top_k is not None or self.distill_top_k > 0:
                     actual_top_k = top_k if top_k is not None else self.distill_top_k
@@ -658,7 +676,7 @@ class DistillationModel(nn.Module):
         
         # 计算评估指标
         metrics = {}
-        if calculate_metrics and labels is not None:
+        if calculate_metrics and labels is not None and ltc_ncp_logits is not None:
             # 计算困惑度
             perplexity = self.calculate_perplexity(ltc_ncp_logits, labels, ignore_index=pad_token_id)
             metrics["perplexity"] = perplexity.item() if not torch.isnan(perplexity) else float('inf')
@@ -672,20 +690,18 @@ class DistillationModel(nn.Module):
                 accuracy = correct / total if total > 0 else torch.tensor(0.0)
                 metrics["accuracy"] = accuracy.item()
                 
-        # 返回结果
+        # 构建返回字典
         if return_dict:
-            result = {
-                "loss": loss,
-                "loss_components": loss_components,
+            return_dict = {
                 "ltc_ncp_logits": ltc_ncp_logits,
                 "supervision_logits": supervision_logits,
+                "loss": loss,
+                "loss_components": loss_components,
+                "metrics": metrics  # 添加指标字典
             }
-            # 添加评估指标
-            if metrics:
-                result["metrics"] = metrics
-            return result
+            return return_dict
         else:
-            return (loss, ltc_ncp_logits)
+            return ltc_ncp_logits
         
     def generate(self, input_ids, attention_mask=None, max_length=None, eos_token_id=None, repetition_penalty=None):
         """生成文本"""
@@ -770,82 +786,157 @@ class TeacherOutputAdapter(nn.Module):
         Returns:
             adjusted_logits: 调整后的输出 [target_batch_size, target_seq_length, vocab_size]
         """
-        if teacher_logits is None:
-            # 如果没有教师输出，返回零张量
-            return torch.zeros(
-                (target_batch_size, target_seq_length, self.vocab_size),
-                dtype=torch.float16,
-                device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            )
-        
-        batch_size, seq_length, vocab_size = teacher_logits.shape
-        device = teacher_logits.device
-        dtype = teacher_logits.dtype
-        
-        # 处理词汇表大小不匹配
-        # 如果教师模型的词汇表大小与目标不同，进行调整
-        if vocab_size != self.vocab_size:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"正在调整教师词汇表大小: {vocab_size} -> {self.vocab_size}")
+        with torch.no_grad():
+            if teacher_logits is None:
+                # 如果没有教师输出，返回零张量
+                return torch.zeros(
+                    (target_batch_size, target_seq_length, self.vocab_size),
+                    dtype=torch.float16,
+                    device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                )
             
-            # 创建新的张量来适配目标词汇表大小
-            resized_logits = torch.zeros(
-                (batch_size, seq_length, self.vocab_size),
-                dtype=dtype,
-                device=device
-            )
-            
-            # 复制共同部分
-            common_size = min(vocab_size, self.vocab_size)
-            resized_logits[:, :, :common_size] = teacher_logits[:, :, :common_size]
-            
-            # 如果教师词汇表更大，对超出部分的信息进行汇总并加入到最后一个标记
-            if vocab_size > self.vocab_size:
-                # 计算超出部分的logits平均值，并添加到最后一个标记
-                excess_logits = teacher_logits[:, :, common_size:].mean(dim=2, keepdim=True)
-                # 将超出部分的信息添加到最后一个标记
-                resized_logits[:, :, -1:] += excess_logits
-            
-            # 使用调整后的张量替换原始张量
-            teacher_logits = resized_logits
-            vocab_size = self.vocab_size
-            
-        # 处理批次大小不匹配
-        if batch_size != target_batch_size:
-            # 扩展或收缩批次维度
-            if batch_size > target_batch_size:
-                # 如果教师批次更大，裁剪
-                teacher_logits = teacher_logits[:target_batch_size]
+            # 使用混合精度加速处理
+            if torch.cuda.is_available():
+                with torch.cuda.amp.autocast(enabled=True):
+                    batch_size, seq_length, vocab_size = teacher_logits.shape
+                    device = teacher_logits.device
+                    dtype = teacher_logits.dtype
+                    
+                    # 处理词汇表大小不匹配
+                    # 如果教师模型的词汇表大小与目标不同，进行调整
+                    if vocab_size != self.vocab_size:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"正在调整教师词汇表大小: {vocab_size} -> {self.vocab_size}")
+                        
+                        # 创建新的张量来适配目标词汇表大小
+                        resized_logits = torch.zeros(
+                            (batch_size, seq_length, self.vocab_size),
+                            dtype=dtype,
+                            device=device
+                        )
+                        
+                        # 复制共同部分
+                        common_size = min(vocab_size, self.vocab_size)
+                        resized_logits[:, :, :common_size] = teacher_logits[:, :, :common_size]
+                        
+                        # 如果教师词汇表更大，对超出部分的信息进行汇总并加入到最后一个标记
+                        if vocab_size > self.vocab_size:
+                            # 计算超出部分的logits平均值，并添加到最后一个标记
+                            excess_logits = teacher_logits[:, :, common_size:].mean(dim=2, keepdim=True)
+                            # 将超出部分的信息添加到最后一个标记
+                            resized_logits[:, :, -1:] += excess_logits
+                        
+                        # 使用调整后的张量替换原始张量
+                        teacher_logits = resized_logits
+                        vocab_size = self.vocab_size
+                        
+                    # 处理批次大小不匹配
+                    if batch_size != target_batch_size:
+                        # 扩展或收缩批次维度
+                        if batch_size > target_batch_size:
+                            # 如果教师批次更大，裁剪
+                            teacher_logits = teacher_logits[:target_batch_size]
+                        else:
+                            # 如果教师批次更小，复制最后一个批次的样本
+                            padding = teacher_logits[-1:].expand(target_batch_size - batch_size, seq_length, vocab_size)
+                            teacher_logits = torch.cat([teacher_logits, padding], dim=0)
+                    
+                    # 处理序列长度不匹配
+                    if seq_length != target_seq_length:
+                        # 创建适应目标序列长度的新张量
+                        adjusted_logits = torch.zeros(
+                            (target_batch_size, target_seq_length, vocab_size),
+                            dtype=dtype,
+                            device=device
+                        )
+                        
+                        # 确定要复制的长度
+                        copy_length = min(seq_length, target_seq_length)
+                        
+                        # 复制共同部分
+                        adjusted_logits[:, :copy_length, :] = teacher_logits[:, :copy_length, :]
+                        
+                        # 如果需要扩展序列长度，复制最后的标记
+                        if target_seq_length > seq_length:
+                            last_tokens = teacher_logits[:, -1:, :]
+                            for i in range(seq_length, target_seq_length):
+                                adjusted_logits[:, i:i+1, :] = last_tokens
+                        
+                        # 将结果移动到CPU，减少GPU内存占用
+                        return adjusted_logits.detach().cpu()
+                    
+                    # 将结果移动到CPU，减少GPU内存占用
+                    return teacher_logits.detach().cpu()
             else:
-                # 如果教师批次更小，复制最后一个批次的样本
-                padding = teacher_logits[-1:].expand(target_batch_size - batch_size, seq_length, vocab_size)
-                teacher_logits = torch.cat([teacher_logits, padding], dim=0)
-        
-        # 处理序列长度不匹配
-        if seq_length != target_seq_length:
-            # 创建适应目标序列长度的新张量
-            adjusted_logits = torch.zeros(
-                (target_batch_size, target_seq_length, vocab_size),
-                dtype=dtype,
-                device=device
-            )
-            
-            # 确定要复制的长度
-            copy_length = min(seq_length, target_seq_length)
-            
-            # 复制共同部分
-            adjusted_logits[:, :copy_length, :] = teacher_logits[:, :copy_length, :]
-            
-            # 如果需要扩展序列长度，复制最后的标记
-            if target_seq_length > seq_length:
-                last_tokens = teacher_logits[:, -1:, :]
-                for i in range(seq_length, target_seq_length):
-                    adjusted_logits[:, i:i+1, :] = last_tokens
-            
-            return adjusted_logits
-        
-        return teacher_logits
+                # 无GPU时的处理逻辑
+                batch_size, seq_length, vocab_size = teacher_logits.shape
+                device = teacher_logits.device
+                dtype = teacher_logits.dtype
+                
+                # 处理词汇表大小不匹配
+                if vocab_size != self.vocab_size:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"正在调整教师词汇表大小: {vocab_size} -> {self.vocab_size}")
+                    
+                    # 创建新的张量来适配目标词汇表大小
+                    resized_logits = torch.zeros(
+                        (batch_size, seq_length, self.vocab_size),
+                        dtype=dtype,
+                        device=device
+                    )
+                    
+                    # 复制共同部分
+                    common_size = min(vocab_size, self.vocab_size)
+                    resized_logits[:, :, :common_size] = teacher_logits[:, :, :common_size]
+                    
+                    # 如果教师词汇表更大，对超出部分的信息进行汇总并加入到最后一个标记
+                    if vocab_size > self.vocab_size:
+                        # 计算超出部分的logits平均值，并添加到最后一个标记
+                        excess_logits = teacher_logits[:, :, common_size:].mean(dim=2, keepdim=True)
+                        # 将超出部分的信息添加到最后一个标记
+                        resized_logits[:, :, -1:] += excess_logits
+                    
+                    # 使用调整后的张量替换原始张量
+                    teacher_logits = resized_logits
+                    vocab_size = self.vocab_size
+                    
+                # 处理批次大小不匹配
+                if batch_size != target_batch_size:
+                    # 扩展或收缩批次维度
+                    if batch_size > target_batch_size:
+                        # 如果教师批次更大，裁剪
+                        teacher_logits = teacher_logits[:target_batch_size]
+                    else:
+                        # 如果教师批次更小，复制最后一个批次的样本
+                        padding = teacher_logits[-1:].expand(target_batch_size - batch_size, seq_length, vocab_size)
+                        teacher_logits = torch.cat([teacher_logits, padding], dim=0)
+                
+                # 处理序列长度不匹配
+                if seq_length != target_seq_length:
+                    # 创建适应目标序列长度的新张量
+                    adjusted_logits = torch.zeros(
+                        (target_batch_size, target_seq_length, vocab_size),
+                        dtype=dtype,
+                        device=device
+                    )
+                    
+                    # 确定要复制的长度
+                    copy_length = min(seq_length, target_seq_length)
+                    
+                    # 复制共同部分
+                    adjusted_logits[:, :copy_length, :] = teacher_logits[:, :copy_length, :]
+                    
+                    # 如果需要扩展序列长度，复制最后的标记
+                    if target_seq_length > seq_length:
+                        last_tokens = teacher_logits[:, -1:, :]
+                        for i in range(seq_length, target_seq_length):
+                            adjusted_logits[:, i:i+1, :] = last_tokens
+                    
+                    return adjusted_logits.detach()
+                
+                return teacher_logits.detach()
 
 # 添加联合知识蒸馏损失函数
 class JointKDLoss(nn.Module):

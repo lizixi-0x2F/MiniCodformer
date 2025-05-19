@@ -150,8 +150,8 @@ class CustomPreTrainer(Trainer):
             
         return (loss, outputs) if return_outputs else loss
         
-    def log(self, logs):
-        """添加困惑度到日志"""
+    def log(self, logs, start_time=None, *args, **kwargs):
+        """添加困惑度到日志，保持与Trainer.log()方法兼容"""
         # 计算平均困惑度
         if hasattr(self, 'perplexity_history') and self.perplexity_history:
             # 取最近10个值计算平均困惑度
@@ -161,7 +161,7 @@ class CustomPreTrainer(Trainer):
                 avg_perplexity = sum(valid_values) / len(valid_values)
                 logs["perplexity"] = avg_perplexity
             
-        super().log(logs)
+        super().log(logs, start_time, *args, **kwargs)
 
 def main():
     parser = argparse.ArgumentParser(description="DeepSeek 500M模型预训练")
@@ -237,10 +237,10 @@ def main():
     logger.info("创建500M模型架构")
     config = create_custom_model_config(
         vocab_size=len(tokenizer),
-        hidden_size=args.hidden_size,
-        num_hidden_layers=args.num_layers, 
-        num_attention_heads=args.num_heads,
-        intermediate_size=args.intermediate_size
+        hidden_size=768,  # 从2048降至768
+        num_hidden_layers=12,  # 从24降至12
+        num_attention_heads=12,  # 从16降至12
+        intermediate_size=3072  # 从8192降至3072
     )
     
     # 创建模型
