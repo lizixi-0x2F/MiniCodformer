@@ -30,7 +30,18 @@ python process_local_wiki.py \
   --max_samples 100000
 ```
 
+### 运行预训练（可选）
+
+如果您想先使用维基百科数据从头预训练500M模型：
+
+```bash
+# 运行预训练脚本
+./run_pretrain.sh
+```
+
 ### 运行蒸馏
+
+使用预训练模型或自定义模型进行知识蒸馏：
 
 ```bash
 # 使用内存优化版蒸馏脚本
@@ -39,10 +50,12 @@ python process_local_wiki.py \
 
 ## 核心文件说明
 
+- `model.py`：自定义模型架构定义，包含500M参数设置
+- `process_local_wiki.py`：维基百科数据处理工具
+- `pretrain.py`：500M模型预训练脚本
+- `run_pretrain.sh`：预训练脚本的运行配置
 - `optimized_distill.py`：内存优化版知识蒸馏脚本，解决词汇表不匹配和显存溢出问题
 - `run_optimized_distill.sh`：蒸馏脚本的运行配置
-- `model.py`：自定义模型架构定义
-- `process_local_wiki.py`：维基百科数据处理工具
 - `requirements.txt`：项目依赖
 
 ## 蒸馏流程
