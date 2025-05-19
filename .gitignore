@@ -8,11 +8,32 @@ output*/
 Qwen*/
 **/model-*.safetensors
 **/pytorch_model.bin
+**/model.safetensors
+**/model_index.json
 
 # 数据集目录（可能很大）
 data/processed/
+data/corpus/
+data/*.json
 **/dataset/
 **/DataSet-*/
+*.jsonl
+*.parquet
+*.arrow
+*.bin
+
+# 备份目录
+backup/
+old/
+archive/
+
+# 大型训练记录和检查点
+runs/
+**/runs/
+wandb/
+**/wandb/
+tensorboard/
+events.out.tfevents.*
 
 # Python缓存
 __pycache__/

@@ -355,8 +355,32 @@ class DistillationModel(nn.Module):
         import os
         import json
         import torch
-        from dataclasses import asdict
-        from config import ModelConfig
+        from dataclasses import dataclass, asdict
+        
+        # 内部定义ModelConfig类
+        @dataclass
+        class ModelConfig:
+            vocab_size: int = 151669
+            hidden_size: int = 2048
+            num_hidden_layers: int = 24
+            num_attention_heads: int = 16
+            intermediate_size: int = 8192
+            hidden_dropout_prob: float = 0.1
+            attention_probs_dropout_prob: float = 0.1
+            max_position_embeddings: int = 2048
+            ltc_ncp_hidden_size: int = 2048
+            ltc_ncp_num_layers: int = 12
+            ltc_kernel_size: int = 3
+            distill_supervision: bool = True
+            share_embeddings: bool = True
+            distill_logits: bool = True
+            distill_hiddens: bool = True
+            temperature: float = 2.0
+            distill_top_k: int = 20
+            ignore_padding: bool = True
+            pad_token_id: int = 0
+            eos_token_id: int = 2
+            bos_token_id: int = 1
         
         # 加载配置
         with open(os.path.join(model_path, "config.json"), "r", encoding="utf-8") as f:

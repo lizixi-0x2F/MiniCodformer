@@ -380,8 +380,8 @@ class CustomModelConfig(PretrainedConfig):
             **kwargs
         )
 
-def create_custom_model_config(vocab_size, hidden_size=256, num_hidden_layers=3, 
-                              num_attention_heads=4, intermediate_size=1024):
+def create_custom_model_config(vocab_size, hidden_size=2048, num_hidden_layers=24, 
+                              num_attention_heads=16, intermediate_size=8192):
     """创建自定义模型配置"""
     return CustomModelConfig(
         vocab_size=vocab_size,
@@ -393,7 +393,7 @@ def create_custom_model_config(vocab_size, hidden_size=256, num_hidden_layers=3,
         attention_probs_dropout_prob=0.1,
         max_position_embeddings=2048,
         ltc_ncp_hidden_size=hidden_size,
-        ltc_ncp_num_layers=num_hidden_layers,
+        ltc_ncp_num_layers=num_hidden_layers//2,  # 解码器层数为编码器的一半
         ltc_kernel_size=3,
         distill_supervision=True,
         share_embeddings=True,
