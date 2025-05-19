@@ -475,10 +475,6 @@ class DistillationModel(nn.Module):
             # 知识蒸馏 (teacher-student) 损失
             if teacher_logits is not None and use_soft_labels:
                 # 使用adapter处理词汇表大小统一问题
-                teacher_logits_match = teacher_logits
-                # 这里不需要额外处理词汇表大小不匹配问题
-                # 因为TeacherOutputAdapter会处理词汇表大小的调整
-                
                 batch_size, seq_length = input_ids.shape
                 
                 # 使用adapter调整教师logits的形状以匹配学生输出
@@ -687,7 +683,10 @@ class TeacherOutputAdapter(nn.Module):
         # 处理词汇表大小不匹配
         # 如果教师模型的词汇表大小与目标不同，进行调整
         if vocab_size != self.vocab_size:
-            print(f"调整教师词汇表大小: {vocab_size} -> {self.vocab_size}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"正在调整教师词汇表大小: {vocab_size} -> {self.vocab_size}")
+            
             # 创建新的张量来适配目标词汇表大小
             resized_logits = torch.zeros(
                 (batch_size, seq_length, self.vocab_size),
@@ -698,6 +697,13 @@ class TeacherOutputAdapter(nn.Module):
             # 复制共同部分
             common_size = min(vocab_size, self.vocab_size)
             resized_logits[:, :, :common_size] = teacher_logits[:, :, :common_size]
+            
+            # 如果教师词汇表更大，对超出部分的信息进行汇总并加入到最后一个标记
+            if vocab_size > self.vocab_size:
+                # 计算超出部分的logits平均值，并添加到最后一个标记
+                excess_logits = teacher_logits[:, :, common_size:].mean(dim=2, keepdim=True)
+                # 将超出部分的信息添加到最后一个标记
+                resized_logits[:, :, -1:] += excess_logits
             
             # 使用调整后的张量替换原始张量
             teacher_logits = resized_logits

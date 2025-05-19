@@ -117,12 +117,20 @@ def precompute_teacher_outputs(teacher_model, dataset, tokenizer, max_seq_length
                 
                 # 安全地获取教师输出
                 try:
-                    # 使用配置中的词汇表大小或默认值
-                    if model_config is not None:
-                        model_vocab_size = model_config.vocab_size  # 使用配置中的词汇表大小
-                    else:
-                        # 如果model_config未提供，使用默认值或从教师模型获取
-                        model_vocab_size = 151936 if teacher_model is None else teacher_model.config.vocab_size
+                    # 统一使用词汇表大小为151669，与教师模型Qwen3-8B一致
+                    model_vocab_size = 151669
+                    if "VOCAB_SIZE" in os.environ:
+                        try:
+                            model_vocab_size = int(os.environ["VOCAB_SIZE"])
+                            logger.info(f"从环境变量加载词汇表大小: {model_vocab_size}")
+                        except:
+                            logger.warning(f"无法从环境变量解析词汇表大小，使用默认值: {model_vocab_size}")
+                    elif model_config is not None:
+                        model_vocab_size = model_config.vocab_size
+                        logger.info(f"从配置加载词汇表大小: {model_vocab_size}")
+                    elif teacher_model is not None:
+                        model_vocab_size = getattr(teacher_model.config, "vocab_size", 151669)
+                        logger.info(f"从教师模型加载词汇表大小: {model_vocab_size}")
                     
                     batch_size = batch["input_ids"].size(0)
                     seq_length = batch["input_ids"].size(1)
@@ -256,15 +264,40 @@ def precompute_teacher_outputs(teacher_model, dataset, tokenizer, max_seq_length
                         if logits_list:
                             # 检查所有子批次的形状是否一致
                             if all(t.size(0) > 0 for t in logits_list):
-                                # 逐个合并到logits张量中
+                                # 创建新的输出张量以匹配目标词汇表大小
+                                target_vocab_size = model_vocab_size  # 使用环境变量或配置中的词汇表大小
+                                combined_logits = torch.zeros(
+                                    (batch_size, seq_length, target_vocab_size),
+                                    dtype=torch.float16,
+                                    device=device
+                                )
+                                
+                                # 逐个合并到新的张量中
                                 current_idx = 0
                                 for sub_logits in logits_list:
                                     sub_size = sub_logits.size(0)
-                                    if current_idx + sub_size <= batch_size:
-                                        logits[current_idx:current_idx+sub_size] = sub_logits
-                                        current_idx += sub_size
+                                    sub_vocab_size = sub_logits.size(2)
                                     
+                                    if current_idx + sub_size <= batch_size:
+                                        # 处理词汇表大小不匹配
+                                        min_vocab_size = min(sub_vocab_size, target_vocab_size)
+                                        
+                                        # 复制共同部分
+                                        combined_logits[current_idx:current_idx+sub_size, :, :min_vocab_size] = (
+                                            sub_logits[:, :, :min_vocab_size]
+                                        )
+                                        
+                                        # 如果子批次词汇表更大，汇总多余部分
+                                        if sub_vocab_size > target_vocab_size:
+                                            # 计算超出部分的logits平均值，并添加到最后一个标记
+                                            excess_logits = sub_logits[:, :, target_vocab_size:].mean(dim=2, keepdim=True)
+                                            combined_logits[current_idx:current_idx+sub_size, :, -1:] += excess_logits
+                                            
+                                        current_idx += sub_size
+                                
+                                # 更新主logits张量
                                 if current_idx > 0:
+                                    logits = combined_logits
                                     logger.info(f"批次 {batch_idx}: 成功组合多个子批次到完整批次")
                     except Exception as e:
                         logger.warning(f"组合多子批次到完整批次失败: {e}")
