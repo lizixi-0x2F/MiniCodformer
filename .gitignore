@@ -1,0 +1,49 @@
+# 模型输出目录
+output*/
+**/checkpoint-*/
+**/best_model/
+**/final_model/
+
+# 预训练模型权重（太大）
+Qwen*/
+**/model-*.safetensors
+**/pytorch_model.bin
+
+# 数据集目录（可能很大）
+data/processed/
+**/dataset/
+**/DataSet-*/
+
+# Python缓存
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ipynb_checkpoints/
+
+# 虚拟环境
+venv/
+env/
+.env/
+.venv/
+
+# 日志文件
+*.log
+logs/
+**/logs/
+
+# 临时文件
+*.swp
+*.swo
+.DS_Store
+.idea/
+.vscode/
+*.tmp
+
+# 分布式训练临时文件
+*.nccl.json
+*.pt.trace.json
+
+# 其他系统文件
+.Trash-*/
+Thumbs.db 
